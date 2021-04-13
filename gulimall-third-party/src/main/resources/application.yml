@@ -1,0 +1,19 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+    alicloud:
+      sms:
+        host: http://dingxin.market.alicloudapi.com
+        path: /dx/sendSms
+#        skin: 1
+#        sign: 175622
+        appcode: 242717bdae8343b78fe2eede392a7339
+
+
+  application:
+    name: gulimall-third-party
+
+server:
+  port: 30000
