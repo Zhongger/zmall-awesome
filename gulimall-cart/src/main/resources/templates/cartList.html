@@ -17,8 +17,7 @@
 
             <ul class="header-left">
                 <li>
-
-                    <a href="http://gulimall.com">首页</a>
+                    <a href="http://gulimall.com">Zmall商城首页</a>
                 </li>
 
             </ul>
@@ -32,7 +31,7 @@
                        style="color: red;">免费注册</a>
                 </li>
                 <li class="spacer"></li>
-                <li><a href="http://order.gulimall.com/orderList.html">我的订单</a></li>
+                <li><a href="http://member.gulimall.com/memberOrder.html">我的订单</a></li>
                 <li class="spacer"></li>
 
             </ul>
@@ -48,19 +47,19 @@
     <div class="one_sousuo">
         <div class="one_search_top">
             <div class="one_top_left">
-                <a href="http://gulimall.com" class="one_left_logo"><img src="cart/img/logo1.jpg"></a>
-                <a href="http://cart.gulimall.com/cart.html" class="one_left_link">购物车</a>
+<!--                <a href="http://gulimall.com" class="one_left_logo"><img src="cart/img/logo1.jpg"></a>-->
+                <a href="http://cart.gulimall.com/cart.html" class="one_left_link" style="color: red">Zmall 购物车</a>
             </div>
-            <div class="one_top_right">
-                <input type="text" class="one_right_txt" placeholder="" onfocus="this.placeholder=''"
-                       onblur="this.placeholder='' ">
-                <input type="button" value="搜索" class="one_right_btn">
-            </div>
+<!--            <div class="one_top_right">-->
+<!--                <input type="text" class="one_right_txt" placeholder="" onfocus="this.placeholder=''"-->
+<!--                       onblur="this.placeholder='' ">-->
+<!--                <input type="button" value="搜索" class="one_right_btn">-->
+<!--            </div>-->
         </div>
         <div class="one_search_load" th:if="${session.loginUser == null}">
-            <img src="cart/img/shop_07.jpg" class="one_load_wraing">
-            <span>您还没有登录！登录后购物车的商品将保存到您账号中</span>
-            <a href="#"><input type="button" onclick="login()" value="立即登录" class="one_load_btn"></a>
+<!--            <img src="cart/img/shop_07.jpg" class="one_load_wraing">-->
+            <span>亲，您还未登录，登录后购物车的商品将保存到您账号中～</span>
+<!--            <a href="#"><input type="button" onclick="login()" value="立即登录" class="one_load_btn"></a>-->
         </div>
     </div>
 </div>
@@ -86,7 +85,10 @@
 
         <div class="One_ShopCon">
             <h1 th:if="${cart.items == null}">
-                购物车还没有商品，<a href="http://gulimall.com/">去购物</a>
+                <div style="margin: 10px">
+                    购物车竟然是空的~
+                </div>
+
             </h1>
             <ul th:if="${cart.items != null}">
                 <li th:each="item:${cart.items}">
@@ -132,8 +134,8 @@
                 <ul>
                     <li><input type="checkbox" class="allCheck"><span>全选</span></li>
                     <li>删除选中的商品</li>
-                    <li>移到我的关注</li>
-                    <li>清除下柜商品</li>
+<!--                    <li>移到我的关注</li>-->
+<!--                    <li>清除下柜商品</li>-->
                 </ul>
             </div>
             <div>
@@ -151,7 +153,7 @@
                 </ol>
             </div>
             <div>
-                <button onclick="toTrade()" type="button">去结算</button>
+                <button onclick="toTrade()" type="button">去支付</button>
             </div>
         </div>
     </div>

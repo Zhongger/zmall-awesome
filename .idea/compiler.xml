@@ -14,10 +14,10 @@
         <module name="gulimall-auth-server" />
         <module name="gulimall-order" />
         <module name="gulimall-search" />
-        <module name="gulimall-ware" />
-        <module name="gulimall-member" />
         <module name="gulimall-gateway" />
         <module name="gulimall-seckill" />
+        <module name="gulimall-member" />
+        <module name="gulimall-ware" />
         <module name="gulimall-product" />
       </profile>
     </annotationProcessing>
