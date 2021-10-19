@@ -18,7 +18,7 @@ spring:
 #        port: 8719
 
   redis:
-    host: 10.227.30.100
+    host: localhost
     port: 6379
     password: 123456
 
