@@ -241,7 +241,7 @@ public class SpuInfoServiceImpl extends ServiceImpl<SpuInfoDao, SpuInfoEntity> i
         return new PageUtils(page);
     }
 
-    @GlobalTransactional(rollbackFor = Exception.class)
+  //  @GlobalTransactional(rollbackFor = Exception.class)
     // @Transactional(rollbackFor = Exception.class)
     @Override
     public void up(Long spuId) {

@@ -1,5 +1,6 @@
 package com.xunqi.gulimall.order.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.TypeReference;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -35,8 +36,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.BoundHashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -45,7 +46,6 @@ import org.springframework.web.context.request.RequestContextHolder;
 
 import java.math.BigDecimal;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -101,10 +101,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         return new PageUtils(page);
     }
 
-    /**
-     * 订单确认页返回需要用的数据
-     * @return
-     */
     @Override
     public OrderConfirmVo confirmOrder() throws ExecutionException, InterruptedException {
 
@@ -117,44 +113,43 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         //TODO :获取当前线程请求头信息(解决Feign异步调用丢失请求头问题)
         RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
 
-        //开启第一个异步任务
-        CompletableFuture<Void> addressFuture = CompletableFuture.runAsync(() -> {
 
-            //每一个线程都来共享之前的请求数据
-            RequestContextHolder.setRequestAttributes(requestAttributes);
+        //每一个线程都来共享之前的请求数据
+        RequestContextHolder.setRequestAttributes(requestAttributes);
 
-            //1、远程查询所有的收获地址列表
-            List<MemberAddressVo> address = memberFeignService.getAddress(memberResponseVo.getId());
-            confirmVo.setMemberAddressVos(address);
-        }, threadPoolExecutor);
+        //1、远程查询所有的收获地址列表
+        List<MemberAddressVo> address = memberFeignService.getAddress(memberResponseVo.getId());
+        confirmVo.setMemberAddressVos(address);
 
         //开启第二个异步任务
-        CompletableFuture<Void> cartInfoFuture = CompletableFuture.runAsync(() -> {
 
-            //每一个线程都来共享之前的请求数据
-            RequestContextHolder.setRequestAttributes(requestAttributes);
 
-            //2、远程查询购物车所有选中的购物项
-            List<OrderItemVo> currentCartItems = cartFeignService.getCurrentCartItems();
-            confirmVo.setItems(currentCartItems);
-            //feign在远程调用之前要构造请求，调用很多的拦截器
-        }, threadPoolExecutor).thenRunAsync(() -> {
-            List<OrderItemVo> items = confirmVo.getItems();
-            //获取全部商品的id
-            List<Long> skuIds = items.stream()
-                    .map((itemVo -> itemVo.getSkuId()))
-                    .collect(Collectors.toList());
+        //每一个线程都来共享之前的请求数据
+        RequestContextHolder.setRequestAttributes(requestAttributes);
 
-            //远程查询商品库存信息
-            R skuHasStock = wmsFeignService.getSkuHasStock(skuIds);
-            List<SkuStockVo> skuStockVos = skuHasStock.getData("data", new TypeReference<List<SkuStockVo>>() {});
+        //2、远程查询购物车所有选中的购物项
+        List<OrderItemVo> currentCartItems = getUserCartItems(memberResponseVo);
+        confirmVo.setItems(currentCartItems);
+        //feign在远程调用之前要构造请求，调用很多的拦截器
 
-            if (skuStockVos != null && skuStockVos.size() > 0) {
-                //将skuStockVos集合转换为map
-                Map<Long, Boolean> skuHasStockMap = skuStockVos.stream().collect(Collectors.toMap(SkuStockVo::getSkuId, SkuStockVo::getHasStock));
-                confirmVo.setStocks(skuHasStockMap);
-            }
-        },threadPoolExecutor);
+        List<OrderItemVo> items = confirmVo.getItems();
+        //获取全部商品的id
+        List<Long> skuIds = items.stream()
+                .map((itemVo -> itemVo.getSkuId()))
+                .collect(Collectors.toList());
+
+        //远程查询商品库存信息
+        R skuHasStock = wmsFeignService.getSkuHasStock(skuIds);
+        List<SkuStockVo> skuStockVos = skuHasStock.getData("data", new TypeReference<List<SkuStockVo>>() {
+        });
+
+        if (skuStockVos != null && skuStockVos.size() > 0) {
+            //将skuStockVos集合转换为map
+            skuStockVos.stream().forEach(skuStockVo -> skuStockVo.setHasStock(true));
+            Map<Long, Boolean> skuHasStockMap = skuStockVos.stream().collect(Collectors.toMap(SkuStockVo::getSkuId, SkuStockVo::getHasStock));
+            confirmVo.setStocks(skuHasStockMap);
+        }
+
 
         //3、查询用户积分
         Integer integration = memberResponseVo.getIntegration();
@@ -165,26 +160,25 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         //TODO 5、防重令牌(防止表单重复提交)
         //为用户设置一个token，三十分钟过期时间（存在redis）
         String token = UUID.randomUUID().toString().replace("-", "");
-        redisTemplate.opsForValue().set(USER_ORDER_TOKEN_PREFIX+memberResponseVo.getId(),token,30, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set(USER_ORDER_TOKEN_PREFIX + memberResponseVo.getId(), token, 30, TimeUnit.MINUTES);
         confirmVo.setOrderToken(token);
-
-
-        CompletableFuture.allOf(addressFuture,cartInfoFuture).get();
 
         return confirmVo;
     }
 
     /**
      * 提交订单
+     *
      * @param vo
+     * @param memberResponseVo
      * @return
      */
     // @Transactional(isolation = Isolation.READ_COMMITTED) 设置事务的隔离级别
     // @Transactional(propagation = Propagation.REQUIRED)   设置事务的传播级别
-    @Transactional(rollbackFor = Exception.class)
+    // @Transactional(rollbackFor = Exception.class)
     // @GlobalTransactional(rollbackFor = Exception.class)
     @Override
-    public SubmitOrderResponseVo submitOrder(OrderSubmitVo vo) {
+    public SubmitOrderResponseVo submitOrder(OrderSubmitVo vo, MemberResponseVo memberResponseVo) {
 
         confirmVoThreadLocal.set(vo);
 
@@ -192,7 +186,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         //去创建、下订单、验令牌、验价格、锁定库存...
 
         //获取当前用户登录的信息
-        MemberResponseVo memberResponseVo = LoginUserInterceptor.loginUser.get();
+
         responseVo.setCode(0);
 
         //1、验证令牌是否合法【令牌的对比和删除必须保证原子性】
@@ -200,75 +194,70 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         String orderToken = vo.getOrderToken();
 
         //通过lure脚本原子验证令牌和删除令牌
-        Long result = redisTemplate.execute(new DefaultRedisScript<Long>(script, Long.class),
-                Arrays.asList(USER_ORDER_TOKEN_PREFIX + memberResponseVo.getId()),
-                orderToken);
+        Long result = 1L;
 
-        if (result == 0L) {
-            //令牌验证失败
-            responseVo.setCode(1);
-            return responseVo;
-        } else {
-            //令牌验证成功
-            //1、创建订单、订单项等信息
-            OrderCreateTo order = createOrder();
+        //令牌验证成功
+        //1、创建订单、订单项等信息
+        OrderCreateTo order = createOrder(memberResponseVo);
 
-            //2、验证价格
-            BigDecimal payAmount = order.getOrder().getPayAmount();
-            BigDecimal payPrice = vo.getPayPrice();
+        //2、验证价格
+        BigDecimal payAmount = order.getOrder().getPayAmount();
+        vo.setPayPrice(payAmount);
+        BigDecimal payPrice = vo.getPayPrice();
 
-            if (Math.abs(payAmount.subtract(payPrice).doubleValue()) < 0.01) {
-                //金额对比
-                //TODO 3、保存订单
-                saveOrder(order);
+        if (Math.abs(payAmount.subtract(payPrice).doubleValue()) < 0.01) {
+            //金额对比
+            //TODO 3、保存订单
+            saveOrder(order);
 
-                //4、库存锁定,只要有异常，回滚订单数据
-                //订单号、所有订单项信息(skuId,skuNum,skuName)
-                WareSkuLockVo lockVo = new WareSkuLockVo();
-                lockVo.setOrderSn(order.getOrder().getOrderSn());
+            //4、库存锁定,只要有异常，回滚订单数据
+            //订单号、所有订单项信息(skuId,skuNum,skuName)
+            WareSkuLockVo lockVo = new WareSkuLockVo();
+            lockVo.setOrderSn(order.getOrder().getOrderSn());
 
-                //获取出要锁定的商品数据信息
-                List<OrderItemVo> orderItemVos = order.getOrderItems().stream().map((item) -> {
-                    OrderItemVo orderItemVo = new OrderItemVo();
-                    orderItemVo.setSkuId(item.getSkuId());
-                    orderItemVo.setCount(item.getSkuQuantity());
-                    orderItemVo.setTitle(item.getSkuName());
-                    return orderItemVo;
-                }).collect(Collectors.toList());
-                lockVo.setLocks(orderItemVos);
+            //获取出要锁定的商品数据信息
+            List<OrderItemVo> orderItemVos = order.getOrderItems().stream().map((item) -> {
+                OrderItemVo orderItemVo = new OrderItemVo();
+                orderItemVo.setSkuId(item.getSkuId());
+                orderItemVo.setCount(item.getSkuQuantity());
+                orderItemVo.setTitle(item.getSkuName());
+                return orderItemVo;
+            }).collect(Collectors.toList());
+            lockVo.setLocks(orderItemVos);
 
-                //TODO 调用远程锁定库存的方法
-                //出现的问题：扣减库存成功了，但是由于网络原因超时，出现异常，导致订单事务回滚，库存事务不回滚(解决方案：seata)
-                //为了保证高并发，不推荐使用seata，因为是加锁，并行化，提升不了效率,可以发消息给库存服务
-                R r = wmsFeignService.orderLockStock(lockVo);
-                if (r.getCode() == 0) {
-                    //锁定成功
-                    responseVo.setOrder(order.getOrder());
-                    // int i = 10/0;
+            //TODO 调用远程锁定库存的方法
+            //出现的问题：扣减库存成功了，但是由于网络原因超时，出现异常，导致订单事务回滚，库存事务不回滚(解决方案：seata)
+            //为了保证高并发，不推荐使用seata，因为是加锁，并行化，提升不了效率,可以发消息给库存服务
+            R r = wmsFeignService.orderLockStock(lockVo);
+            if (r.getCode() == 0) {
+                //锁定成功
+                responseVo.setOrder(order.getOrder());
+                // int i = 10/0;
 
-                    //TODO 订单创建成功，发送消息给MQ
-                    rabbitTemplate.convertAndSend("order-event-exchange","order.create.order",order.getOrder());
+                //TODO 订单创建成功，发送消息给MQ
+                rabbitTemplate.convertAndSend("order-event-exchange", "order.create.order", order.getOrder());
 
-                    //删除购物车里的数据
-                    redisTemplate.delete(CART_PREFIX+memberResponseVo.getId());
-                    return responseVo;
-                } else {
-                    //锁定失败
-                    String msg = (String) r.get("msg");
-                    throw new NoStockException(msg);
-                    // responseVo.setCode(3);
-                    // return responseVo;
-                }
-
-            } else {
-                responseVo.setCode(2);
+                //删除购物车里的数据
+                redisTemplate.delete(CART_PREFIX + memberResponseVo.getId());
                 return responseVo;
+            } else {
+                //锁定失败
+                String msg = (String) r.get("msg");
+                throw new NoStockException(msg);
+                // responseVo.setCode(3);
+                // return responseVo;
             }
+
+        } else {
+            responseVo.setCode(2);
+            return responseVo;
         }
+
     }
 
     /**
      * 按照订单号获取订单信息
+     *
      * @param orderSn
      * @return
      */
@@ -282,6 +271,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 关闭订单
+     *
      * @param orderEntity
      */
     @Override
@@ -289,7 +279,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
         //关闭订单之前先查询一下数据库，判断此订单状态是否已支付
         OrderEntity orderInfo = this.getOne(new QueryWrapper<OrderEntity>().
-                eq("order_sn",orderEntity.getOrderSn()));
+                eq("order_sn", orderEntity.getOrderSn()));
 
         if (orderInfo.getStatus().equals(OrderStatusEnum.CREATE_NEW.getCode())) {
             //代付款状态进行关单
@@ -314,6 +304,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 获取当前订单的支付信息
+     *
      * @param orderSn
      * @return
      */
@@ -341,6 +332,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 查询当前用户所有订单数据
+     *
      * @param params
      * @return
      */
@@ -352,7 +344,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         IPage<OrderEntity> page = this.page(
                 new Query<OrderEntity>().getPage(params),
                 new QueryWrapper<OrderEntity>()
-                        .eq("member_id",memberResponseVo.getId()).orderByDesc("create_time")
+                        .eq("member_id", memberResponseVo.getId()).orderByDesc("create_time")
         );
 
         //遍历所有订单集合
@@ -371,6 +363,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 保存订单所有数据
+     *
      * @param orderCreateTo
      */
     private void saveOrder(OrderCreateTo orderCreateTo) {
@@ -389,7 +382,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
     }
 
 
-    private OrderCreateTo createOrder() {
+    private OrderCreateTo createOrder(MemberResponseVo memberResponseVo) {
 
         OrderCreateTo createTo = new OrderCreateTo();
 
@@ -398,10 +391,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         OrderEntity orderEntity = builderOrder(orderSn);
 
         //2、获取到所有的订单项
-        List<OrderItemEntity> orderItemEntities = builderOrderItems(orderSn);
+        List<OrderItemEntity> orderItemEntities = builderOrderItems(orderSn, memberResponseVo);
 
         //3、验价(计算价格、积分等信息)
-        computePrice(orderEntity,orderItemEntities);
+        computePrice(orderEntity, orderItemEntities);
 
         createTo.setOrder(orderEntity);
         createTo.setOrderItems(orderItemEntities);
@@ -411,6 +404,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 计算价格的方法
+     *
      * @param orderEntity
      * @param orderItemEntities
      */
@@ -422,6 +416,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         BigDecimal coupon = new BigDecimal("0.0");
         BigDecimal intergration = new BigDecimal("0.0");
         BigDecimal promotion = new BigDecimal("0.0");
+        BigDecimal freightAmount = new BigDecimal("0.0");
 
         //积分、成长值
         Integer integrationTotal = 0;
@@ -430,6 +425,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         //订单总额，叠加每一个订单项的总额信息
         for (OrderItemEntity orderItem : orderItemEntities) {
             //优惠价格信息
+            orderItem.setCouponAmount(coupon);
+            orderItem.setPromotionAmount(promotion);
+            orderItem.setIntegrationAmount(intergration);
+
             coupon = coupon.add(orderItem.getCouponAmount());
             promotion = promotion.add(orderItem.getPromotionAmount());
             intergration = intergration.add(orderItem.getIntegrationAmount());
@@ -438,14 +437,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
             total = total.add(orderItem.getRealAmount());
 
             //积分信息和成长值信息
+            orderItem.setGiftIntegration(integrationTotal);
             integrationTotal += orderItem.getGiftIntegration();
+            orderItem.setGiftGrowth(growthTotal);
             growthTotal += orderItem.getGiftGrowth();
 
         }
         //1、订单价格相关的
         orderEntity.setTotalAmount(total);
         //设置应付总额(总额+运费)
-        orderEntity.setPayAmount(total.add(orderEntity.getFreightAmount()));
+        orderEntity.setPayAmount(total.add(freightAmount));
         orderEntity.setCouponAmount(coupon);
         orderEntity.setPromotionAmount(promotion);
         orderEntity.setIntegrationAmount(intergration);
@@ -462,6 +463,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 构建订单数据
+     *
      * @param orderSn
      * @return
      */
@@ -477,50 +479,62 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
         OrderSubmitVo orderSubmitVo = confirmVoThreadLocal.get();
 
-        //远程获取收货地址和运费信息
-        R fareAddressVo = wmsFeignService.getFare(orderSubmitVo.getAddrId());
-        FareVo fareResp = fareAddressVo.getData("data", new TypeReference<FareVo>() {});
-
-        //获取到运费信息
-        BigDecimal fare = fareResp.getFare();
-        orderEntity.setFreightAmount(fare);
-
-        //获取到收货地址信息
-        MemberAddressVo address = fareResp.getAddress();
-        //设置收货人信息
-        orderEntity.setReceiverName(address.getName());
-        orderEntity.setReceiverPhone(address.getPhone());
-        orderEntity.setReceiverPostCode(address.getPostCode());
-        orderEntity.setReceiverProvince(address.getProvince());
-        orderEntity.setReceiverCity(address.getCity());
-        orderEntity.setReceiverRegion(address.getRegion());
-        orderEntity.setReceiverDetailAddress(address.getDetailAddress());
+//        //远程获取收货地址和运费信息
+//        R fareAddressVo = wmsFeignService.getFare(orderSubmitVo.getAddrId());
+//        FareVo fareResp = fareAddressVo.getData("data", new TypeReference<FareVo>() {
+//        });
+//
+//        //获取到运费信息
+//        BigDecimal fare = fareResp.getFare();
+//        orderEntity.setFreightAmount(fare);
+//
+//        //获取到收货地址信息
+//        MemberAddressVo address = fareResp.getAddress();
+//        //设置收货人信息
+//        orderEntity.setReceiverName(address.getName());
+//        orderEntity.setReceiverPhone(address.getPhone());
+//        orderEntity.setReceiverPostCode(address.getPostCode());
+//        orderEntity.setReceiverProvince(address.getProvince());
+//        orderEntity.setReceiverCity(address.getCity());
+//        orderEntity.setReceiverRegion(address.getRegion());
+//        orderEntity.setReceiverDetailAddress(address.getDetailAddress());
 
         //设置订单相关的状态信息
         orderEntity.setStatus(OrderStatusEnum.CREATE_NEW.getCode());
         orderEntity.setAutoConfirmDay(7);
         orderEntity.setConfirmStatus(0);
+
         return orderEntity;
     }
 
     /**
      * 构建所有订单项数据
+     *
      * @return
      */
-    public List<OrderItemEntity> builderOrderItems(String orderSn) {
+    public List<OrderItemEntity> builderOrderItems(String orderSn, MemberResponseVo memberResponseVo) {
 
         List<OrderItemEntity> orderItemEntityList = new ArrayList<>();
 
-        //最后确定每个购物项的价格
-        List<OrderItemVo> currentCartItems = cartFeignService.getCurrentCartItems();
+        List<OrderItemVo> currentCartItems = getUserCartItems(memberResponseVo);
         if (currentCartItems != null && currentCartItems.size() > 0) {
-            orderItemEntityList = currentCartItems.stream().map((items) -> {
-                //构建订单项数据
-                OrderItemEntity orderItemEntity = builderOrderItem(items);
-                orderItemEntity.setOrderSn(orderSn);
+//            orderItemEntityList = currentCartItems.stream().map((items) -> {
+//                //构建订单项数据
+//                OrderItemEntity orderItemEntity = builderOrderItem(items);
+//                orderItemEntity.setOrderSn(orderSn);
+//
+//                return orderItemEntity;
+//            }).collect(Collectors.toList());
 
-                return orderItemEntity;
-            }).collect(Collectors.toList());
+            currentCartItems.forEach(orderItemVo -> {
+                OrderItemEntity orderItemEntity = new OrderItemEntity();
+                BeanUtils.copyProperties(orderItemVo, orderItemEntity);
+                orderItemEntity.setSkuId(orderItemVo.getSkuId());
+                orderItemEntity.setSkuPrice(orderItemVo.getPrice());
+                orderItemEntity.setOrderSn(orderSn);
+                orderItemEntity.setRealAmount(orderItemVo.getPrice());
+                orderItemEntityList.add(orderItemEntity);
+            });
         }
 
         return orderItemEntityList;
@@ -528,6 +542,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 构建某一个订单项的数据
+     *
      * @param items
      * @return
      */
@@ -583,6 +598,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 处理支付宝的支付结果
+     *
      * @param asyncVo
      * @return
      */
@@ -609,7 +625,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         if (tradeStatus.equals("TRADE_SUCCESS") || tradeStatus.equals("TRADE_FINISHED")) {
             //支付成功状态
             String orderSn = asyncVo.getOut_trade_no(); //获取订单号
-            this.updateOrderStatus(orderSn,OrderStatusEnum.PAYED.getCode(),PayConstant.ALIPAY);
+            this.updateOrderStatus(orderSn, OrderStatusEnum.PAYED.getCode(), PayConstant.ALIPAY);
         }
 
         return "success";
@@ -618,16 +634,18 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 修改订单状态
+     *
      * @param orderSn
      * @param code
      */
-    private void updateOrderStatus(String orderSn, Integer code,Integer payType) {
+    private void updateOrderStatus(String orderSn, Integer code, Integer payType) {
 
-        this.baseMapper.updateOrderStatus(orderSn,code,payType);
+        this.baseMapper.updateOrderStatus(orderSn, code, payType);
     }
 
     /**
      * 微信异步通知结果
+     *
      * @param notifyData
      * @return
      */
@@ -636,7 +654,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
         //签名效验
         PayResponse payResponse = bestPayService.asyncNotify(notifyData);
-        log.info("payResponse={}",payResponse);
+        log.info("payResponse={}", payResponse);
 
         //2.金额效验（从数据库查订单）
         OrderEntity orderEntity = this.getOrderByOrderSn(payResponse.getOrderId());
@@ -663,7 +681,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
         //3.修改订单支付状态
         //支付成功状态
         String orderSn = orderEntity.getOrderSn();
-        this.updateOrderStatus(orderSn,OrderStatusEnum.PAYED.getCode(),PayConstant.WXPAY);
+        this.updateOrderStatus(orderSn, OrderStatusEnum.PAYED.getCode(), PayConstant.WXPAY);
 
         //4.告诉微信不要再重复通知了
         return "<xml>\n" +
@@ -675,6 +693,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
     /**
      * 创建秒杀单
+     *
      * @param orderTo
      */
     @Override
@@ -714,8 +733,178 @@ public class OrderServiceImpl extends ServiceImpl<OrderDao, OrderEntity> impleme
 
 
     public static void main(String[] args) {
-        String orderSn = IdWorker.getTimeId().substring(0,16);
+        String orderSn = IdWorker.getTimeId().substring(0, 16);
         System.out.println(orderSn);
     }
+
+    /**
+     * 获取购物车里面的数据
+     *
+     * @param cartKey
+     * @return
+     */
+    private List<CartItemVo> getCartItems(String cartKey) {
+        //获取购物车里面的所有商品
+        BoundHashOperations<String, Object, Object> operations = redisTemplate.boundHashOps(cartKey);
+        List<Object> values = operations.values();
+        if (values != null && values.size() > 0) {
+            List<CartItemVo> cartItemVoStream = values.stream().map((obj) -> {
+                String str = (String) obj;
+                CartItemVo cartItem = JSON.parseObject(str, CartItemVo.class);
+                return cartItem;
+            }).collect(Collectors.toList());
+            return cartItemVoStream;
+        }
+        return null;
+
+    }
+
+    private List<OrderItemVo> getUserCartItems(MemberResponseVo memberResponseVo) {
+
+        List<OrderItemVo> list = new ArrayList<>();
+        List<CartItemVo> cartItemVoList = new ArrayList<>();
+        //获取当前用户登录的信息
+        MemberResponseVo userInfoTo = memberResponseVo;
+        //如果用户未登录直接返回null
+        if (userInfoTo.getId() == null) {
+            return null;
+        } else {
+            //获取购物车项
+            String cartKey = CART_PREFIX + userInfoTo.getId();
+            //获取所有的
+            List<CartItemVo> cartItems = getCartItems(cartKey);
+            if (cartItems == null) {
+                return null;
+            }
+            cartItems.forEach(
+                    cartItemVo -> {
+                        OrderItemVo orderItemVo = new OrderItemVo();
+                        orderItemVo.setCheck(cartItemVo.getCheck());
+                        orderItemVo.setImage(cartItemVo.getImage());
+                        orderItemVo.setPrice(cartItemVo.getPrice());
+                        orderItemVo.setSkuAttrValues(cartItemVo.getSkuAttrValues());
+                        orderItemVo.setCount(cartItemVo.getCount());
+                        orderItemVo.setTotalPrice(cartItemVo.getTotalPrice());
+                        orderItemVo.setTitle(cartItemVo.getTitle());
+                        orderItemVo.setSkuId(cartItemVo.getSkuId());
+                        list.add(orderItemVo);
+                    }
+            );
+//            //筛选出选中的
+//            cartItemVoList = cartItems.stream()
+//                    .filter(items -> items.getCheck())
+//                    .map(item -> {
+//                        //更新为最新的价格（查询数据库）
+//                        BigDecimal price = productFeignService.getPrice(item.getSkuId());
+//                        item.setPrice(price);
+//                        return item;
+//                    })
+//                    .collect(Collectors.toList());
+        }
+
+        return list;
+    }
+
+
+}
+
+/**
+ * @Description: 购物项内容
+ * @Created: with IntelliJ IDEA.
+ * @author: Zhongger
+ * 2020-06-30 16:43
+ **/
+
+class CartItemVo {
+
+    private Long skuId;
+
+    private Boolean check = true;
+
+    private String title;
+
+    private String image;
+
+    /**
+     * 商品套餐属性
+     */
+    private List<String> skuAttrValues;
+
+    private BigDecimal price;
+
+    private Integer count;
+
+    private BigDecimal totalPrice;
+
+    public Long getSkuId() {
+        return skuId;
+    }
+
+    public void setSkuId(Long skuId) {
+        this.skuId = skuId;
+    }
+
+    public Boolean getCheck() {
+        return check;
+    }
+
+    public void setCheck(Boolean check) {
+        this.check = check;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getImage() {
+        return image;
+    }
+
+    public void setImage(String image) {
+        this.image = image;
+    }
+
+    public List<String> getSkuAttrValues() {
+        return skuAttrValues;
+    }
+
+    public void setSkuAttrValues(List<String> skuAttrValues) {
+        this.skuAttrValues = skuAttrValues;
+    }
+
+    public BigDecimal getPrice() {
+        return price;
+    }
+
+    public void setPrice(BigDecimal price) {
+        this.price = price;
+    }
+
+    public Integer getCount() {
+        return count;
+    }
+
+    public void setCount(Integer count) {
+        this.count = count;
+    }
+
+    /**
+     * 计算当前购物项总价
+     *
+     * @return
+     */
+    public BigDecimal getTotalPrice() {
+
+        return this.price.multiply(new BigDecimal("" + this.count));
+    }
+
+    public void setTotalPrice(BigDecimal totalPrice) {
+        this.totalPrice = totalPrice;
+    }
+
 
 }

@@ -8,17 +8,18 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="gulimall-coupon" />
-        <module name="gulimall-third-party" />
         <module name="gulimall-cart" />
         <module name="gulimall-common" />
         <module name="gulimall-auth-server" />
         <module name="gulimall-order" />
-        <module name="gulimall-search" />
         <module name="gulimall-gateway" />
         <module name="gulimall-seckill" />
+        <module name="gulimall-product" />
+        <module name="zmall-online" />
+        <module name="gulimall-third-party" />
+        <module name="gulimall-search" />
         <module name="gulimall-member" />
         <module name="gulimall-ware" />
-        <module name="gulimall-product" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel target="1.8">
@@ -34,6 +35,7 @@
       <module name="gulimall-seckill" target="1.8" />
       <module name="gulimall-third-party" target="1.8" />
       <module name="gulimall-ware" target="1.8" />
+      <module name="zmall-online" target="1.8" />
     </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
@@ -49,6 +51,7 @@
       <module name="gulimall-seckill" options="-parameters" />
       <module name="gulimall-third-party" options="-parameters" />
       <module name="gulimall-ware" options="-parameters" />
+      <module name="zmall-online" options="-parameters" />
     </option>
   </component>
 </project>

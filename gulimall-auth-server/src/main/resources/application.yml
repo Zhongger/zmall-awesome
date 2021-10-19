@@ -19,7 +19,7 @@ spring:
 #        dashboard: localhost:8080
 
   redis:
-    host: xx.xxx.xx.xxx
+    host: 10.227.30.100
     port: 6379
     password: 123456
 

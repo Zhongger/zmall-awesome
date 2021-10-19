@@ -1,6 +1,8 @@
 package com.xunqi.gulimall.order.web;
 
 import com.xunqi.common.exception.NoStockException;
+import com.xunqi.common.vo.MemberResponseVo;
+import com.xunqi.gulimall.order.interceptor.LoginUserInterceptor;
 import com.xunqi.gulimall.order.service.OrderService;
 import com.xunqi.gulimall.order.vo.OrderConfirmVo;
 import com.xunqi.gulimall.order.vo.OrderSubmitVo;
@@ -30,6 +32,7 @@ public class OrderWebController {
 
     /**
      * 去结算确认页
+     *
      * @param model
      * @param request
      * @return
@@ -41,7 +44,7 @@ public class OrderWebController {
 
         OrderConfirmVo confirmVo = orderService.confirmOrder();
 
-        model.addAttribute("confirmOrderData",confirmVo);
+        model.addAttribute("confirmOrderData", confirmVo);
         //展示订单确认的数据
 
         return "confirm";
@@ -50,6 +53,7 @@ public class OrderWebController {
 
     /**
      * 下单功能
+     *
      * @param vo
      * @return
      */
@@ -57,7 +61,8 @@ public class OrderWebController {
     public String submitOrder(OrderSubmitVo vo, Model model, RedirectAttributes attributes) {
 
         try {
-            SubmitOrderResponseVo responseVo = orderService.submitOrder(vo);
+            MemberResponseVo memberResponseVo = LoginUserInterceptor.loginUser.get();
+            SubmitOrderResponseVo responseVo = orderService.submitOrder(vo,memberResponseVo);
             //下单成功来到支付选择页
             //下单失败回到订单确认页重新确定订单信息
             if (responseVo.getCode() == 0) {
@@ -81,6 +86,16 @@ public class OrderWebController {
             }
             return "redirect:http://order.gulimall.com/toTrade";
         }
+
+//
+//        SubmitOrderResponseVo responseVo = orderService.submitOrder(vo);
+//        //下单成功来到支付选择页
+//        //下单失败回到订单确认页重新确定订单信息
+//
+//        //成功
+//        model.addAttribute("submitOrderResp", responseVo);
+//        return "pay";
+
     }
 
 }

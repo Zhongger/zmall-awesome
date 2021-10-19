@@ -112,11 +112,13 @@
 
                             </li>
                             <li>
-                                <p th:attr="skuId=${item.skuId}">
-                                    <span class="countOpsBtn">-</span>
-                                    <span class="countOpsNum" th:text="${item.count}">5</span>
-                                    <span class="countOpsBtn">+</span>
-                                </p>
+
+                                    <p th:attr="skuId=${item.skuId}">
+
+                                        <span class="countOpsNum" th:text="${item.count}">5</span>
+
+                                    </p>
+
 
                             </li>
                             <li style="font-weight:bold"><p class="zj">￥[[${#numbers.formatDecimal(item.totalPrice,3,2)}]]</p></li>

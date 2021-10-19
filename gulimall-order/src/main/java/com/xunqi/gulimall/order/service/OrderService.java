@@ -3,6 +3,7 @@ package com.xunqi.gulimall.order.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.xunqi.common.to.mq.SeckillOrderTo;
 import com.xunqi.common.utils.PageUtils;
+import com.xunqi.common.vo.MemberResponseVo;
 import com.xunqi.gulimall.order.entity.OrderEntity;
 import com.xunqi.gulimall.order.vo.*;
 
@@ -29,9 +30,10 @@ public interface OrderService extends IService<OrderEntity> {
     /**
      * 创建订单
      * @param vo
+     * @param memberResponseVo
      * @return
      */
-    SubmitOrderResponseVo submitOrder(OrderSubmitVo vo);
+    SubmitOrderResponseVo submitOrder(OrderSubmitVo vo, MemberResponseVo memberResponseVo);
 
     /**
      * 按照订单号获取订单信息

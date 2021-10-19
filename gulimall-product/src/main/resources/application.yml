@@ -18,30 +18,27 @@ spring:
       discovery:
         server-addr: localhost:8848
 
-#    sentinel:
-#      transport:
-#        #配置sentinel dashboard地址
-#        dashboard: localhost:8080
+  #    sentinel:
+  #      transport:
+  #        #配置sentinel dashboard地址
+  #        dashboard: localhost:8080
 
   redis:
-    host: xx.xxx.xx.xxx
+    host: 10.227.30.100
     port: 6379
     password: 123456
+  thymeleaf:
+    cache: false
+  session:
+    store-type: redis
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
 
 #开启feign对sentinel的支持
 feign:
   sentinel:
     enabled: true
 
-  jackson:
-    date-format: yyyy-MM-dd HH:mm:ss
-
-    #关闭thymeleaf缓存
-  thymeleaf:
-    cache: false
-
-  session:
-    store-type: redis
 
 mybatis-plus:
   mapper-locations: classpath:/mapper/**/*.xml

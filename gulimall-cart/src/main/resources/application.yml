@@ -18,7 +18,7 @@ spring:
 
   redis:
     port: 6379
-    host: xx.xxx.xx.xxx
+    host: 10.227.30.100
     password: 123456
 
 #开启feign对sentinel的支持

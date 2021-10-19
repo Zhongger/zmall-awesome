@@ -15,6 +15,7 @@
       <module fileurl="file://$PROJECT_DIR$/gulimall-third-party/gulimall-third-party.iml" filepath="$PROJECT_DIR$/gulimall-third-party/gulimall-third-party.iml" />
       <module fileurl="file://$PROJECT_DIR$/gulimall-ware/gulimall-ware.iml" filepath="$PROJECT_DIR$/gulimall-ware/gulimall-ware.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/zmall.iml" filepath="$PROJECT_DIR$/.idea/zmall.iml" />
+      <module fileurl="file://$PROJECT_DIR$/zmall-online/zmall-online.iml" filepath="$PROJECT_DIR$/zmall-online/zmall-online.iml" />
     </modules>
   </component>
 </project>

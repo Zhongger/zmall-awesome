@@ -19,7 +19,7 @@ import java.io.IOException;
  * 2020-07-13 11:30
  **/
 
-@Configuration
+//@Configuration
 public class GulimallProductSentinelConfig {
 
     public GulimallProductSentinelConfig() {
